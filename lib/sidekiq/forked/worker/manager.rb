@@ -33,9 +33,7 @@ module Sidekiq
             @reaper_factory ||= -> { ZombieReaper.new }
           end
 
-          def reaper_factory=(factory)
-            @reaper_factory = factory
-          end
+          attr_writer :reaper_factory
 
           def redis(&block)
             Sidekiq.redis(&block)
@@ -86,7 +84,7 @@ module Sidekiq
 
           def hard_kill(pid)
             Process.kill("KILL", pid)
-          rescue StandardError
+          rescue
             nil
           end
 
@@ -96,7 +94,7 @@ module Sidekiq
             thread = nil
 
             cfg.on(:startup) { thread = spawn_reaper_thread }
-            cfg.on(:quiet)   { ZombieReaper.kill_all! }
+            cfg.on(:quiet) { ZombieReaper.kill_all! }
             cfg.on(:shutdown) do
               ZombieReaper.kill_all!
               thread&.kill

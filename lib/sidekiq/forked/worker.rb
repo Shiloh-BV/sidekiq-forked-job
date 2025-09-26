@@ -6,10 +6,10 @@ require "socket"
 module Sidekiq
   module Forked
     module Worker
-      FORK_ZSET_KEY      = "sidekiq:forked:active"
-      FORK_HASH_KEY      = "sidekiq:forked:meta"
-      DEFAULT_TIMEOUT    = 600
-      DEFAULT_TTL        = 900
+      FORK_ZSET_KEY = "sidekiq:forked:active"
+      FORK_HASH_KEY = "sidekiq:forked:meta"
+      DEFAULT_TIMEOUT = 600
+      DEFAULT_TTL = 900
       DEFAULT_REAP_EVERY = 30
     end
   end

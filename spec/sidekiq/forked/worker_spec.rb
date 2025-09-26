@@ -6,35 +6,35 @@ require "stringio"
 require "sidekiq"
 require "sidekiq/forked/worker"
 
-RSpec.describe Sidekiq::Forked::Worker do
-  HOST_KEY = "SIDEKIQ_FORKED_WORKER_HOST"
+class FakeSidekiqConfig
+  attr_reader :events
 
-  class FakeSidekiqConfig
-    attr_reader :events
-
-    def initialize
-      @events = Hash.new { |h, k| h[k] = [] }
-    end
-
-    def on(event, &block)
-      @events[event] << block
-    end
+  def initialize
+    @events = Hash.new { |h, k| h[k] = [] }
   end
 
+  def on(event, &block)
+    @events[event] << block
+  end
+end
+
+HOST_ENV_KEY = "SIDEKIQ_FORKED_WORKER_HOST"
+
+RSpec.describe Sidekiq::Forked::Worker do
   before(:all) do
     redis_url = ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/15")
-    Sidekiq.configure_client { |config| config.redis = { url: redis_url } }
-    Sidekiq.configure_server { |config| config.redis = { url: redis_url } }
+    Sidekiq.configure_client { |config| config.redis = {url: redis_url} }
+    Sidekiq.configure_server { |config| config.redis = {url: redis_url} }
   end
 
   around do |example|
-    original = ENV[HOST_KEY]
+    original = ENV[HOST_ENV_KEY]
     flush_redis
 
     example.run
   ensure
     flush_redis
-    ENV[HOST_KEY] = original
+    ENV[HOST_ENV_KEY] = original
     Sidekiq::Forked::Worker::Manager.instance_variable_set(:@config, nil)
   end
 
@@ -153,7 +153,10 @@ RSpec.describe Sidekiq::Forked::Worker do
       described_class.configure do |cfg|
         cfg.parent_pre_fork = ->(worker, args) { parent_events << [:pre, worker.class.name, args.dup] }
         cfg.parent_post_fork = ->(_worker, _args, pid) { parent_events << [:post, pid] }
-        cfg.child_post_fork = ->(_worker, _args) { wr.puts("child_post_fork"); wr.flush }
+        cfg.child_post_fork = ->(_worker, _args) {
+          wr.puts("child_post_fork")
+          wr.flush
+        }
       end
 
       worker = define_worker("HookWorker") do
@@ -232,8 +235,16 @@ RSpec.describe Sidekiq::Forked::Worker do
       expect(Thread.current[:fork_reap_interval]).to eq(0.5)
       expect(Thread.current[:fork_redis_ttl]).to eq(2)
     ensure
-      parent_reader.close rescue nil
-      child_reader.close rescue nil
+      begin
+        parent_reader.close
+      rescue
+        nil
+      end
+      begin
+        child_reader.close
+      rescue
+        nil
+      end
       Thread.current[:fork_reap_interval] = nil
       Thread.current[:fork_redis_ttl] = nil
     end
@@ -254,8 +265,16 @@ RSpec.describe Sidekiq::Forked::Worker do
       expect(message[:ok]).to be(false)
       expect(message[:error].first).to eq("RuntimeError")
     ensure
-      parent_reader.close rescue nil
-      child_reader.close rescue nil
+      begin
+        parent_reader.close
+      rescue
+        nil
+      end
+      begin
+        child_reader.close
+      rescue
+        nil
+      end
       Thread.current[:fork_reap_interval] = nil
       Thread.current[:fork_redis_ttl] = nil
     end
@@ -363,8 +382,16 @@ RSpec.describe Sidekiq::Forked::Worker do
       remaining = Sidekiq.redis { |redis| redis.hget(described_class::FORK_HASH_KEY, child) }
       expect(remaining).to be_nil
     ensure
-      Process.kill("KILL", child) rescue nil
-      Process.wait(child) rescue nil
+      begin
+        Process.kill("KILL", child)
+      rescue
+        nil
+      end
+      begin
+        Process.wait(child)
+      rescue
+        nil
+      end
     end
 
     it "checks liveness and can hard kill processes" do
@@ -374,7 +401,11 @@ RSpec.describe Sidekiq::Forked::Worker do
       described_class.hard_kill(child)
       expect(wait_for_exit(child)).to be(true)
     ensure
-      Process.wait(child) rescue nil
+      begin
+        Process.wait(child)
+      rescue
+        nil
+      end
     end
 
     it "installs reaper hooks through Sidekiq.configure_server" do
@@ -429,7 +460,17 @@ RSpec.describe Sidekiq::Forked::Worker do
       manager = Sidekiq::Forked::Worker::Manager
       original_factory = manager.reaper_factory
       result = []
-      manager.reaper_factory = -> { Class.new { def initialize(log); @log = log; end; def run; @log << Thread.current.name; end }.new(result) }
+      manager.reaper_factory = -> {
+        Class.new {
+          def initialize(log)
+            @log = log
+          end
+
+          def run
+            @log << Thread.current.name
+          end
+        }.new(result)
+      }
 
       thread = manager.send(:spawn_reaper_thread)
       thread.join
@@ -483,14 +524,22 @@ RSpec.describe Sidekiq::Forked::Worker do
           exit!
         end
 
-        Process.wait(middle) rescue nil
+        begin
+          Process.wait(middle)
+        rescue
+          nil
+        end
         exit!
       end
 
       writer.close
       orphan_pid = reader.gets.to_i
       reader.close
-      Process.wait(parent) rescue nil
+      begin
+        Process.wait(parent)
+      rescue
+        nil
+      end
 
       expect(orphan_pid).to be_positive
 
@@ -507,7 +556,13 @@ RSpec.describe Sidekiq::Forked::Worker do
         Process.kill("KILL", orphan_pid) if orphan_pid && Process.kill(0, orphan_pid)
       rescue Errno::ESRCH
       end
-      Process.wait(orphan_pid) rescue nil if orphan_pid
+      if orphan_pid
+        begin
+          Process.wait(orphan_pid)
+        rescue
+          nil
+        end
+      end
     end
 
     it "kills children that exceed their timeout even if parent lives" do
@@ -540,7 +595,13 @@ RSpec.describe Sidekiq::Forked::Worker do
 
       expect(wait_for_exit(child)).to be(true)
     ensure
-      Process.wait(child) rescue nil if child
+      if child
+        begin
+          Process.wait(child)
+        rescue
+          nil
+        end
+      end
     end
 
     it "respects TTL expiry and host scoping" do
@@ -636,7 +697,11 @@ RSpec.describe Sidekiq::Forked::Worker do
           multi.hdel(described_class::FORK_HASH_KEY, child)
         end
       end
-      Process.wait(child) rescue nil
+      begin
+        Process.wait(child)
+      rescue
+        nil
+      end
     end
 
     it "supports stop condition when running the reaper loop" do
@@ -692,7 +757,7 @@ RSpec.describe Sidekiq::Forked::Worker do
     end
 
     it "respects env override" do
-      ENV[HOST_KEY] = " example-host "
+      ENV[HOST_ENV_KEY] = " example-host "
       expect(described_class.host_id).to eq("example-host")
     end
   end

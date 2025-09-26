@@ -9,18 +9,18 @@ module Sidekiq
             attr_accessor :fork_timeout, :fork_redis_ttl, :fork_reap_interval
           end
 
-          base.fork_timeout       = Worker::DEFAULT_TIMEOUT
-          base.fork_redis_ttl     = Worker::DEFAULT_TTL
+          base.fork_timeout = Worker::DEFAULT_TIMEOUT
+          base.fork_redis_ttl = Worker::DEFAULT_TTL
           base.fork_reap_interval = Worker::DEFAULT_REAP_EVERY
 
           Manager.install_reaper!
         end
 
         def perform(*args)
-          raw_timeout = self.class.fork_timeout.nil? ? Manager.config.default_timeout : self.class.fork_timeout
-          timeout     = raw_timeout.nil? ? nil : raw_timeout.to_i
-          ttl         = (self.class.fork_redis_ttl || Manager.config.default_ttl).to_i
-          reap_int    = (self.class.fork_reap_interval || Manager.config.default_reap_interval)
+          raw_timeout = self.class.fork_timeout || Manager.config.default_timeout
+          timeout = raw_timeout&.to_i
+          ttl = (self.class.fork_redis_ttl || Manager.config.default_ttl).to_i
+          reap_int = self.class.fork_reap_interval || Manager.config.default_reap_interval
 
           reader, writer = IO.pipe
           child_pid = nil
@@ -57,7 +57,7 @@ module Sidekiq
             drain_pipe(reader)
             begin
               Process.wait(child_pid)
-            rescue StandardError
+            rescue
             end
             Manager.clear_child(child_pid) if child_pid
           end
@@ -66,16 +66,14 @@ module Sidekiq
         private
 
         def drain_pipe(reader)
+          if IO.select([reader], nil, nil, 0.05)
+            Marshal.load(reader)
+          end
+        rescue
+        ensure
           begin
-            if IO.select([reader], nil, nil, 0.05)
-              Marshal.load(reader)
-            end
-          rescue StandardError
-          ensure
-            begin
-              reader.close
-            rescue StandardError
-            end
+            reader.close
+          rescue
           end
         end
 
@@ -89,40 +87,38 @@ module Sidekiq
         def disconnect_global_clients_safely
           begin
             Sidekiq.redis { |conn| conn.close }
-          rescue StandardError
+          rescue
           end
 
           begin
             if defined?(ActiveRecord::Base)
               ActiveRecord::Base.connection_pool.disconnect!
             end
-          rescue StandardError
+          rescue
           end
         end
 
         def run_child_process(reader, writer, args, reap_int, ttl, ensure_exit: true, &block)
+          reader.close
+
+          Thread.current[:fork_reap_interval] = reap_int
+          Thread.current[:fork_redis_ttl] = ttl
+
+          disconnect_global_clients_safely
+          Manager.config.child_post_fork&.call(self, args)
+
+          writer.sync = true
+          result = block.call
+          Marshal.dump({ok: true, result: result}, writer)
+        rescue => e
+          writer.sync = true
+          Marshal.dump({ok: false, error: [e.class.name, e.message, e.backtrace]}, writer)
+        ensure
           begin
-            reader.close
-
-            Thread.current[:fork_reap_interval] = reap_int
-            Thread.current[:fork_redis_ttl]     = ttl
-
-            disconnect_global_clients_safely
-            Manager.config.child_post_fork&.call(self, args)
-
-            writer.sync = true
-            result = block.call
-            Marshal.dump({ ok: true, result: result }, writer)
-          rescue StandardError => e
-            writer.sync = true
-            Marshal.dump({ ok: false, error: [e.class.name, e.message, e.backtrace] }, writer)
-          ensure
-            begin
-              writer.close
-            rescue StandardError
-            end
-            exit! if ensure_exit
+            writer.close
+          rescue
           end
+          exit! if ensure_exit
         end
       end
     end

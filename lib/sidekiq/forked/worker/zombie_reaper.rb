@@ -11,10 +11,10 @@ module Sidekiq
             Manager.redis do |redis|
               all_pids = redis.zrange(Worker::FORK_ZSET_KEY, 0, -1)&.map(&:to_i) || []
               metas = if all_pids.empty?
-                        []
-                      else
-                        Array(redis.hmget(Worker::FORK_HASH_KEY, *all_pids)).map { |json| json && JSON.parse(json) }
-                      end
+                []
+              else
+                Array(redis.hmget(Worker::FORK_HASH_KEY, *all_pids)).map { |json| json && JSON.parse(json) }
+              end
               my_pids = metas.compact.select { |meta| meta["host"] == current_host }.map { |meta| meta["pid"].to_i }
 
               my_pids.each { |pid| Manager.hard_kill(pid) }
@@ -33,18 +33,16 @@ module Sidekiq
           retries = 0
 
           loop do
-            begin
-              reap_once
-              break if stop_condition&.call
+            reap_once
+            break if stop_condition&.call
 
-              sleep(sleep_interval || reap_interval)
-              retries = 0
-            rescue StandardError => e
-              Sidekiq.logger.error("ForkedWorker::ZombieReaper crashed: #{e.class}: #{e.message}\n#{e.backtrace.join("\n")}")
-              retries += 1
-              raise e if max_retries && retries > max_retries
-              retry
-            end
+            sleep(sleep_interval || reap_interval)
+            retries = 0
+          rescue => e
+            Sidekiq.logger.error("ForkedWorker::ZombieReaper crashed: #{e.class}: #{e.message}\n#{e.backtrace.join("\n")}")
+            retries += 1
+            raise e if max_retries && retries > max_retries
+            retry
           end
         end
 
@@ -64,10 +62,10 @@ module Sidekiq
             stale_pids = redis.call("ZRANGE", Worker::FORK_ZSET_KEY, 0, cutoff, "BYSCORE")&.map(&:to_i) || []
             all_pids = redis.zrange(Worker::FORK_ZSET_KEY, 0, -1)&.map(&:to_i) || []
             metas = if all_pids.empty?
-                      []
-                    else
-                      Array(redis.hmget(Worker::FORK_HASH_KEY, *all_pids)).map { |json| json && JSON.parse(json) }
-                    end
+              []
+            else
+              Array(redis.hmget(Worker::FORK_HASH_KEY, *all_pids)).map { |json| json && JSON.parse(json) }
+            end
 
             to_kill = stale_pids.dup
             current_host = Manager.host_id
@@ -75,12 +73,12 @@ module Sidekiq
             metas.compact.each do |meta|
               next unless meta["host"] == current_host
 
-              pid        = meta["pid"].to_i
-              ppid       = meta["ppid"].to_i
-              timeout    = meta["timeout"]
-              deadline   = meta["started"].to_f + timeout.to_f if timeout
+              pid = meta["pid"].to_i
+              ppid = meta["ppid"].to_i
+              timeout = meta["timeout"]
+              deadline = meta["started"].to_f + timeout.to_f if timeout
               parent_dead = !Manager.alive?(ppid)
-              over_time   = timeout.nil? ? false : (now > deadline)
+              over_time = timeout.nil? ? false : (now > deadline)
 
               next unless Manager.alive?(pid)
 
