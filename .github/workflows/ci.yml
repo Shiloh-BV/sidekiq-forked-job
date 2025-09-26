@@ -9,6 +9,16 @@ on:
 jobs:
   rspec:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,7 +29,12 @@ jobs:
         with:
           ruby-version: "3.2"
           bundler-cache: true
+      - name: Wait for Redis
+        run: |
+          ruby -rsocket -e 'deadline = Time.now + 30; loop do; begin; TCPSocket.new("127.0.0.1", 6379).close; break; rescue Errno::ECONNREFUSED; raise "Redis not reachable" if Time.now > deadline; sleep 1; end; end'
       - name: Run RSpec
+        env:
+          REDIS_URL: redis://127.0.0.1:6379/15
         run: bundle exec rspec --format documentation
       - name: Upload coverage HTML
         if: always()

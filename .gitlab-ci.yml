@@ -2,6 +2,7 @@ image: ruby:3.2
 
 variables:
   BUNDLE_PATH: vendor/bundle
+  REDIS_URL: redis://redis:6379/15
 
 cache:
   paths:
@@ -20,7 +21,11 @@ stages:
 
 rspec:
   stage: test
+  services:
+    - name: redis:7-alpine
+      alias: redis
   script:
+    - ruby -rsocket -e 'deadline = Time.now + 30; loop do; begin; TCPSocket.new("redis", 6379).close; break; rescue Errno::ECONNREFUSED; raise "Redis not reachable" if Time.now > deadline; sleep 1; end; end'
     - bundle exec rspec --format documentation
   artifacts:
     when: always
