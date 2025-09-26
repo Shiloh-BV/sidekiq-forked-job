@@ -1,0 +1,77 @@
+image: ruby:3.2
+
+variables:
+  BUNDLE_PATH: vendor/bundle
+
+cache:
+  paths:
+    - vendor/bundle
+
+before_script:
+  - ruby -v
+  - gem install bundler:2.5.10
+  - bundle install --jobs=3 --retry=3
+
+stages:
+  - test
+  - lint
+  - verify
+  - release
+
+rspec:
+  stage: test
+  script:
+    - bundle exec rspec --format documentation
+  artifacts:
+    when: always
+    paths:
+      - coverage/index.html
+    expire_in: 7 days
+  coverage: '/Line Coverage: ([0-9]+\.[0-9]+)%/'
+
+rubocop:
+  stage: lint
+  script:
+    - bundle exec rubocop --display-only-fails --format progress
+
+ensure_version_bump:
+  stage: verify
+  needs:
+    - rspec
+    - rubocop
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+      when: on_success
+    - when: never
+  script:
+    - |
+      commit_count=$(git rev-list --count HEAD)
+      if [ "$commit_count" -le 1 ]; then
+        if git show HEAD:lib/sidekiq/forked/worker/version.rb >/dev/null 2>&1; then
+          exit 0
+        else
+          echo "Initial master commit must include lib/sidekiq/forked/worker/version.rb"
+          exit 1
+        fi
+      fi
+
+      if ! git diff --name-only HEAD^ HEAD | grep -q "^lib/sidekiq/forked/worker/version.rb$"; then
+        echo "Version must be bumped in lib/sidekiq/forked/worker/version.rb when merging to master."
+        exit 1
+      fi
+
+build_gem:
+  stage: release
+  needs:
+    - ensure_version_bump
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+      when: on_success
+    - when: never
+  script:
+    - gem build sidekiq-forked-worker.gemspec
+  artifacts:
+    when: always
+    paths:
+      - sidekiq-forked-worker-*.gem
+    expire_in: 7 days
