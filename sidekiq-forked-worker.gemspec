@@ -11,7 +11,7 @@ Gem::Specification.new do |spec|
   spec.summary = "Forked Sidekiq worker with zombie reaper"
   spec.description = "Run Sidekiq perform in a fork with Redis tracking, TTL-based reap, and configurable pre/post fork hooks."
   spec.homepage = "https://gitlab.com/your-namespace/sidekiq-forked-worker"
-  spec.required_ruby_version = ">= 3.1.0"
+  spec.required_ruby_version = ">= 3.0.0"
 
   # spec.metadata["allowed_push_host"] = "https://rubygems.org"
 

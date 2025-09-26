@@ -22,13 +22,13 @@ module Sidekiq
           ttl = (self.class.fork_redis_ttl || Manager.config.default_ttl).to_i
           reap_int = self.class.fork_reap_interval || Manager.config.default_reap_interval
 
-          reader, writer = IO.pipe
+          reader, writer = ::IO.pipe
           child_pid = nil
 
           begin
             Manager.config.parent_pre_fork&.call(self, args)
 
-            child_pid = Process.fork do
+            child_pid = ::Process.fork do
               run_child_process(reader, writer, args, reap_int, ttl) { super(*args) }
             end
 
@@ -38,12 +38,12 @@ module Sidekiq
             Manager.record_child(pid: child_pid, jid: jid, klass: self.class.name, timeout: timeout, ttl: ttl)
 
             if timeout.nil?
-              IO.select([reader])
-              message = Marshal.load(reader)
+              ::IO.select([reader])
+              message = ::Marshal.load(reader)
               raise build_error(message) unless message[:ok]
               message[:result]
-            elsif IO.select([reader], nil, nil, timeout)
-              message = Marshal.load(reader)
+            elsif ::IO.select([reader], nil, nil, timeout)
+              message = ::Marshal.load(reader)
               raise build_error(message) unless message[:ok]
               message[:result]
             else
@@ -56,7 +56,7 @@ module Sidekiq
           ensure
             drain_pipe(reader)
             begin
-              Process.wait(child_pid)
+              ::Process.wait(child_pid)
             rescue
             end
             Manager.clear_child(child_pid) if child_pid
@@ -66,8 +66,8 @@ module Sidekiq
         private
 
         def drain_pipe(reader)
-          if IO.select([reader], nil, nil, 0.05)
-            Marshal.load(reader)
+          if ::IO.select([reader], nil, nil, 0.05)
+            ::Marshal.load(reader)
           end
         rescue
         ensure
@@ -101,24 +101,24 @@ module Sidekiq
         def run_child_process(reader, writer, args, reap_int, ttl, ensure_exit: true, &block)
           reader.close
 
-          Thread.current[:fork_reap_interval] = reap_int
-          Thread.current[:fork_redis_ttl] = ttl
+          ::Thread.current[:fork_reap_interval] = reap_int
+          ::Thread.current[:fork_redis_ttl] = ttl
 
           disconnect_global_clients_safely
           Manager.config.child_post_fork&.call(self, args)
 
           writer.sync = true
           result = block.call
-          Marshal.dump({ok: true, result: result}, writer)
+          ::Marshal.dump({ok: true, result: result}, writer)
         rescue => e
           writer.sync = true
-          Marshal.dump({ok: false, error: [e.class.name, e.message, e.backtrace]}, writer)
+          ::Marshal.dump({ok: false, error: [e.class.name, e.message, e.backtrace]}, writer)
         ensure
           begin
             writer.close
           rescue
           end
-          exit! if ensure_exit
+          ::Kernel.exit! if ensure_exit
         end
       end
     end

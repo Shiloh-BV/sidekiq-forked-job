@@ -16,8 +16,8 @@ module Sidekiq
           end
 
           def host_id
-            env = normalize_env_host(ENV["SIDEKIQ_FORKED_WORKER_HOST"])
-            env || Socket.gethostname
+            env = normalize_env_host(::ENV["SIDEKIQ_FORKED_WORKER_HOST"])
+            env || ::Socket.gethostname
           end
 
           def install_reaper!
@@ -40,14 +40,14 @@ module Sidekiq
           end
 
           def now_f
-            Process.clock_gettime(Process::CLOCK_REALTIME)
+            ::Process.clock_gettime(::Process::CLOCK_REALTIME)
           end
 
           def record_child(pid:, jid:, klass:, timeout:, ttl:)
             now = now_f
             meta = {
               "pid" => pid,
-              "ppid" => Process.pid,
+              "ppid" => ::Process.pid,
               "jid" => jid,
               "klass" => klass,
               "host" => host_id,
@@ -59,7 +59,7 @@ module Sidekiq
             redis do |r|
               r.multi do |multi|
                 multi.zadd(Worker::FORK_ZSET_KEY, now, pid)
-                multi.hset(Worker::FORK_HASH_KEY, pid, JSON.generate(meta))
+                multi.hset(Worker::FORK_HASH_KEY, pid, ::JSON.generate(meta))
               end
             end
           end
@@ -74,7 +74,7 @@ module Sidekiq
           end
 
           def alive?(pid)
-            Process.kill(0, pid)
+            ::Process.kill(0, pid)
             true
           rescue Errno::ESRCH
             false
@@ -83,7 +83,7 @@ module Sidekiq
           end
 
           def hard_kill(pid)
-            Process.kill("KILL", pid)
+            ::Process.kill("KILL", pid)
           rescue
             nil
           end
@@ -102,7 +102,7 @@ module Sidekiq
           end
 
           def spawn_reaper_thread
-            Thread.new do
+            ::Thread.new do
               reaper_factory.call.run
             end.tap { |thread| thread.name = "forked-worker-reaper" }
           end

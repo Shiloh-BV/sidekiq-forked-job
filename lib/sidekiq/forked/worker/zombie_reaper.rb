@@ -13,7 +13,7 @@ module Sidekiq
               metas = if all_pids.empty?
                 []
               else
-                Array(redis.hmget(Worker::FORK_HASH_KEY, *all_pids)).map { |json| json && JSON.parse(json) }
+                Array(redis.hmget(Worker::FORK_HASH_KEY, *all_pids)).map { |json| json && ::JSON.parse(json) }
               end
               my_pids = metas.compact.select { |meta| meta["host"] == current_host }.map { |meta| meta["pid"].to_i }
 
@@ -49,12 +49,12 @@ module Sidekiq
         private
 
         def reap_interval
-          (Thread.current[:fork_reap_interval] || Manager.config.default_reap_interval || Worker::DEFAULT_REAP_EVERY).to_f
+          (::Thread.current[:fork_reap_interval] || Manager.config.default_reap_interval || Worker::DEFAULT_REAP_EVERY).to_f
         end
 
         def reap_once
           now = Manager.now_f
-          ttl = Thread.current[:fork_redis_ttl] || Manager.config.default_ttl || Worker::DEFAULT_TTL
+          ttl = ::Thread.current[:fork_redis_ttl] || Manager.config.default_ttl || Worker::DEFAULT_TTL
 
           Manager.redis do |redis|
             cutoff = now - ttl
@@ -64,7 +64,7 @@ module Sidekiq
             metas = if all_pids.empty?
               []
             else
-              Array(redis.hmget(Worker::FORK_HASH_KEY, *all_pids)).map { |json| json && JSON.parse(json) }
+              Array(redis.hmget(Worker::FORK_HASH_KEY, *all_pids)).map { |json| json && ::JSON.parse(json) }
             end
 
             to_kill = stale_pids.dup
